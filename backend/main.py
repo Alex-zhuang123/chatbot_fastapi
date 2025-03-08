@@ -1,7 +1,7 @@
 from fastapi.responses import StreamingResponse
 from typing import AsyncIterator
 from schemas import AskInput, AskOutput
-from file_handler import handle_file_upload, cleanup_temp_file
+from file_handler import handle_file_uploads, cleanup_temp_files
 from graph import create_state_graph
 from config import TEMP_DIR, logger
 from fastapi import FastAPI, Depends, HTTPException, UploadFile
@@ -11,11 +11,13 @@ from langchain_unstructured import UnstructuredLoader
 app = FastAPI()
 
 # 文件上传路由
+@app.get("/upload/")
 @app.post("/upload/")
-async def upload_file(file: UploadFile = Depends(handle_file_upload)):
+async def upload_file(file: UploadFile = Depends(handle_file_uploads)):
     return file
 
 # 使用 langserve 部署问答接口
+@app.get("/ask/", response_model=AskOutput)
 @app.post("/ask/", response_model=AskOutput)
 async def ask_question(input: AskInput):
     temp_file_path = os.path.join(TEMP_DIR, input.upload_file)
@@ -53,7 +55,7 @@ async def ask_question(input: AskInput):
         raise HTTPException(status_code=500, detail="Internal server error")
     finally:
         # 清理临时文件
-        cleanup_temp_file(input.upload_file)
+        cleanup_temp_files(input.upload_file)
 
 # 启动应用
 if __name__ == "__main__":
