@@ -64,8 +64,14 @@ prompt = ChatPromptTemplate.from_messages(
                 输出：
                 [{{\"材料\": \"铝合金\", \"零件名称\": \"螺丝\", \"图号\": \"\"}}]"""
             "---- 示例结束 ----"
+
         ),
-        ("human", "{text}"),
+        ("user", [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/jpeg;base64,{image_data}"},
+                },
+            ]),
     ]
 )
 
@@ -77,16 +83,16 @@ parser = JsonOutputParser(pydantic_object=ExtractionData)
 extractor = prompt | llm | parser
 
 
-def extract_key_developments(text_list:List[str]):
-    """批量提取文本中的关键进展并合并结果"""
+def extract_key_developments(images_list):
+    """批量提取图片中的关键进展并合并结果"""
     merged = ExtractionData()
-    for text in text_list:
+    for image_data in images_list:
         try:
             # 使用 invoke 替代 batch 以便逐条处理错误
-            ext = extractor.invoke({"text": text})
+            ext = extractor.invoke({"image_data": image_data})
             print(ext)
             merged.key_developments.extend(ext)
         except Exception as e:
-            logger.error(f"处理失败（文本片段）: {text[:50]}... 错误: {str(e)}")
+            logger.error(f"处理失败（文本片段）: {image_data[:50]}... 错误: {str(e)}")
     return merged.key_developments
         

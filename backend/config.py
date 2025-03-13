@@ -19,3 +19,5 @@ TEMPERATURE = 0.7
 # 文件上传配置
 MAX_FILE_SIZE =  1024 * 1024 * 10  # 10MB
 ALLOWED_FILE_TYPES = ["application/pdf", "image/png", "image/jpeg","text/plain"]
+
+STATIC_DIRECTORY = "static/"
