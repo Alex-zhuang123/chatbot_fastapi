@@ -3,7 +3,6 @@ import logging
 from uuid import uuid4
 from typing import List
 from fastapi import HTTPException, UploadFile
-from aiofiles import os as async_os
 from aiofiles import open as aio_open
 import asyncio
 

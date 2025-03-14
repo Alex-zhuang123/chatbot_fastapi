@@ -6,7 +6,8 @@ import logging
 from file_service import FileService
 from config import MAX_FILE_SIZE, ALLOWED_FILE_TYPES
 import os
-from langchain_unstructured import UnstructuredLoader
+from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_community.document_loaders.parsers import TesseractBlobParser
 from graph import extract_key_developments
 
 app = FastAPI()
@@ -45,6 +46,7 @@ async def upload_files(
 @app.post("/process-files/")
 async def process_files(temp_dir: str, save_results: List[dict]):
     try:
+
         # 检查临时目录是否存在
         if not os.path.exists(temp_dir):
             raise HTTPException(400, "临时目录不存在或已过期")
@@ -75,10 +77,11 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
         
         # 使用 UnstructuredLoader 异步加载文档
         try:
-            loader = UnstructuredLoader(
+            loader = PyMuPDFLoader(
                 file_path=file_path,
-                strategy="hi_res",
-                splitPdfPage=True
+                mode="page",
+                images_inner_format="text",
+                images_parser=TesseractBlobParser()
             )
             
             async for doc in loader.alazy_load():
