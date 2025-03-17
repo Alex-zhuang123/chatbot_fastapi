@@ -1,6 +1,12 @@
 # 基础镜像
 FROM python:3.11-slim
 
+RUN apt-get update && apt-get install -y \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/*
+
 # 设置工作目录
 WORKDIR /app
 
@@ -9,6 +15,7 @@ COPY . /app
 
 # 升级 pip
 RUN pip install --upgrade pip
+
 
 # 安装依赖
 RUN pip install -r requirements.txt
