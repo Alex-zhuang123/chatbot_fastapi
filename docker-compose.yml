@@ -4,9 +4,10 @@ services:
   app:
     build: .
     ports:
-      - 80:8000
+      - 8083:80
     volumes:
       - .:/app
     environment:
       - LOG_LEVEL=INFO
       - DASHSCOPE_API_KEY=your_api_key_here
+    command: uvicorn backend.app:app --host 0.0.0.0 --port 8000：
