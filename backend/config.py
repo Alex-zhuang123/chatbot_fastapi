@@ -12,7 +12,6 @@ DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 if not DASHSCOPE_API_KEY:
     raise ValueError("DASHSCOPE_API_KEY environment variable is not set")
 
-MODEL_NAME = "qwen-vl-plus"
 TEMPERATURE = 0.7
 
 # 文件上传配置

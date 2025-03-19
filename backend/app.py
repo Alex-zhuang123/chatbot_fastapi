@@ -8,6 +8,7 @@ from config import MAX_FILE_SIZE, ALLOWED_FILE_TYPES
 import os
 from workflow import extract_key_developments
 import pymupdf as fitz
+import base64
 
 app = FastAPI()
 
@@ -69,24 +70,38 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
         return {"status": "failure", "results": [], "message": "No valid files to process"}
     
     failed_files = []
-    all_images = []
-    subfolder_path = os.path.join(temp_dir, "pages")
-    os.makedirs(subfolder_path, exist_ok=True)
-
+    all_images_base64 = []
 
     # 构建文件路径并加载内容
     for filename in successful_files:
-        images_path = convert_pdf_to_images(temp_dir,subfolder_path,filename,failed_files)
-        all_images.extend(images_path)
+        try:
+            file_path = os.path.join(temp_dir, filename)
+            pdf_document = fitz.open(file_path)
+            total_pages = len(pdf_document)
+
+            for page_num in range(total_pages):
+                page = pdf_document.load_page(page_num) # 加载页面
+                pix = page.get_pixmap(dpi=600)
+
+                image_bytes = pix.tobytes("png")
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                all_images_base64.append(image_base64)
+
+                print(f"Page {page_num + 1} of {filename} convertend to Base")
+
+        except Exception as e:
+            error_message = f"Error converting file {filename}: {str(e)}"
+            print(error_message)
+            failed_files.append({"filename": filename, "error": str(e)})
     
     # 提取关键信息
     try:
-        key_developments = extract_key_developments(all_images)
+        key_developments = await extract_key_developments(all_images_base64)
         return {
             "results": key_developments,
             "processed_files": successful_files,
             "failed_files": failed_files,
-            "total_processed": len(all_images)
+            "total_processed": len(all_images_base64)
         }
     except Exception as e:
         logger.error(f"Data extraction failed: {str(e)}", exc_info=True)
@@ -95,47 +110,6 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
             detail="Failed to extract information from documents"
         )
 
-def convert_pdf_to_images(temp_dir, subfolder_path, filename, failed_files):
-    """
-    将单个 PDF 文件转换为图片，并保存到指定子文件夹中。
-    
-    :param temp_dir: PDF 文件所在的临时目录路径
-    :param subfolder_path: 图片保存的目标子文件夹路径
-    :param filename: PDF 文件名
-    :param failed_files: 用于记录失败文件的列表
-    """
-    try:
-        # 构建文件路径并加载 PDF 文件
-        file_path = os.path.join(temp_dir, filename)
-        pdf_document = fitz.open(file_path)
-        total_pages = len(pdf_document)  # 获取总页数
-        images_path = []
-        # 遍历每一页，转换为图片并保存
-        for page_number in range(total_pages):
-            page = pdf_document.load_page(page_number)  # 加载页面
-            pix = page.get_pixmap(dpi=300)  # 获取页面的像素图
-            
-            # 构造图片保存路径
-            image_filename = f"page_{page_number + 1}.png"
-            image_path = os.path.join(subfolder_path, image_filename)
-            
-            # 保存图片
-            pix.save(image_path)
-            images_path.append(image_path) 
-            print(f"Page {page_number + 1} of {filename} saved as {image_path}")
-
-        if not images_path:
-            logger.warning("No documents were successfully loaded")
-            return {"status": "failure", "data": [], "message": "Failed to load document contents"}
-        
-        print(f"All pages of {filename} have been successfully converted.")
-        return images_path
-    
-    except Exception as e:
-        # 记录错误信息
-        error_message = f"Error loading file {filename}: {str(e)}"
-        print(error_message)
-        failed_files.append({"filename": filename, "error": str(e)})
 
     
             
