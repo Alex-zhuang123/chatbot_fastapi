@@ -12,6 +12,7 @@ import pymupdf as fitz
 import base64
 from PIL import Image
 import io
+import asyncio
 
 def swagger_monkey_patch(*args, **kwargs):
     """
@@ -107,43 +108,33 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
     
     failed_files = []
     all_images_base64 = []
-
-    # 构建文件路径并加载内容
-    for filename in successful_files:
+    async def process_file_async(filename,temp_dir):
+        file_path = os.path.join(temp_dir, filename)
         try:
-            file_path = os.path.join(temp_dir, filename)
-
-            if filename.lower().endswith(('.pdf')):
-                #处理PDF文件
-
+            if filename.lowe().endswith(('.pdf')):
                 pdf_document = fitz.open(file_path)
                 total_pages = len(pdf_document)
                 for page_num in range(total_pages):
-                    page = pdf_document.load_page(page_num) # 加载页面
+                    page = pdf_document.load_page(page_num)
                     pix = page.get_pixmap(dpi=800)
-
                     image_bytes = pix.tobytes("png")
                     image_base64 = base64.b64encode(image_bytes).decode("utf-8")
                     all_images_base64.append(image_base64)
-
-                    print(f"Page {page_num + 1} of {filename} convertend to Base")
-
-            elif filename.lower().endswith(('.jpg', '.jpeg', '.png')):
-                # 处理图片文件
+                    print(f"Page {page_num + 1} of {filename} converted to base64.")
+            elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                img_byte_arr = io.BytesIO()
                 with Image.open(file_path) as img:
-                    # 将图片转换为字节流
-                    img_byte_arr = io.BytesIO()
                     img.save(img_byte_arr,format=img.format)
                     img_byte_arr = img_byte_arr.getvalue()
-
-                    image_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
-                    all_images_base64.append(image_base64)
-
-
+                img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
+                all_images_base64.append(img_base64)
         except Exception as e:
-            error_message = f"Error converting file {filename}: {str(e)}"
+            error_message = f"Error processing file: {filename}. Error: {str(e)}"
             print(error_message)
             failed_files.append({"filename": filename, "error": str(e)})
+
+    # 使用 asyncio.gather 并发处理文件
+    await asyncio.gather(*[process_file_async(filename, temp_dir) for filename in successful_files])
     
     # 提取关键信息
     try:
@@ -179,18 +170,7 @@ def convert_fields(data, mapping):
         return data
 
 
-async def process_file_async(filename,temp_dir):
-    file_path = os.path.join(temp_dir, filename)
-    try:
-        if filename.lowe().endswith(('.pdf')):
-            pdf_document = fitz.open(file_path)
-            total_pages = len(pdf_document)
-            for page_num in range(total_pages):
-                page = pdf_document.load_page(page_num)
-                pix = page.get_pixmap(dpi=800)
-                image_bytes = pix.tobytes("png")
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-                all_images_base64.append(image_base64)
+
                 
 
 
