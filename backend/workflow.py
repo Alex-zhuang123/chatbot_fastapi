@@ -1,17 +1,18 @@
 import os
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel,Field,ValidationError
 import base64
 from typing import List
 import json
+import asyncio
 
-client = OpenAI(
+client = AsyncOpenAI(
     # 若没有配置环境变量，请用百炼API Key将下行替换为：api_key="sk-xxx",
     api_key=os.getenv("DASHSCOPE_API_KEY"),
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-class KeyDevelopments(BaseModel):
+class KeyDevelopment(BaseModel):
     编号: str = Field(default="", )
     单号: str = Field(default="", )
     等级: str = Field(default="", )
@@ -23,13 +24,39 @@ class KeyDevelopments(BaseModel):
     外发编号: str = Field(default="", )
 
 
+
 class ExtractionData(BaseModel):
     """提取图纸中的关键信息，支持多条目结构化输出"""
-    key_developments: List[KeyDevelopments] = Field(
+    key_developments: List[KeyDevelopment] = Field(
         default_factory=list,
         description="多个零件信息的列表"
     )
 
+
+# 字段映射表
+field_mapping = {
+    "编号": "id",
+    "单号": "order_number",
+    "等级": "level",
+    "材料": "material",
+    "QCR": "qcr",
+    "尺寸": "size",
+    "易损件": "wear_part",
+    "数量": "quantity",
+    "外发编号": "external_id"
+}
+
+# 转换函数
+def convert_fields(data, mapping):
+    if isinstance(data, dict):
+        return {mapping.get(k, k): convert_fields(v, mapping) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_fields(item, mapping) for item in data]
+    elif hasattr(data, "__dict__"):
+        # 如果是类实例对象，提取其属性为字典
+        return convert_fields(vars(data), mapping)
+    else:
+        return data
 
 
 async def extract_key_developments(all_images_base64):
@@ -55,8 +82,11 @@ async def extract_key_developments(all_images_base64):
             data = json.loads(json_str)
             # 遍历所有零件条目
             for item_dict in data:
-                item = KeyDevelopments(**item_dict)
+                item = KeyDevelopment(**item_dict)
                 results.key_developments.append(item)
+
+            
+
         except FileNotFoundError:
             print(f"错误:文件 {image_base64} 未找到，跳过处理")
         except (IndexError, json.JSONDecodeError) as e:
@@ -81,7 +111,10 @@ if __name__ == "__main__":
     
     # 将 Base64 编码存储在列表中
     image_base64_list = [image_base64]
-    result = extract_key_developments(image_base64_list)
-    print(result.model_dump_json(indent=2))
+    # 调用转换函数
+    result = asyncio.run(extract_key_developments(image_base64_list))
+    # 调用转换函数
+    converted_data = convert_fields(result, field_mapping)
+    print(converted_data)
 
 

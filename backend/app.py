@@ -16,6 +16,19 @@ app = FastAPI()
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
+# 字段映射表
+field_mapping = {
+    "编号": "id",
+    "单号": "order_number",
+    "等级": "level",
+    "材料": "material",
+    "QCR": "qcr",
+    "尺寸": "size",
+    "易损件": "wear_part",
+    "数量": "quantity",
+    "外发编号": "external_id"
+}
+
 # 依赖注入
 def get_file_service():
     return FileService(max_size=MAX_FILE_SIZE, allowed_types=ALLOWED_FILE_TYPES)
@@ -81,7 +94,7 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
 
             for page_num in range(total_pages):
                 page = pdf_document.load_page(page_num) # 加载页面
-                pix = page.get_pixmap(dpi=600)
+                pix = page.get_pixmap(dpi=800)
 
                 image_bytes = pix.tobytes("png")
                 image_base64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -97,8 +110,12 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
     # 提取关键信息
     try:
         key_developments = await extract_key_developments(all_images_base64)
+
+        # 调用转换函数
+        converted_data = convert_fields(key_developments, field_mapping)
+
         return {
-            "results": key_developments,
+            "results": converted_data,
             "processed_files": successful_files,
             "failed_files": failed_files,
             "total_processed": len(all_images_base64)
@@ -111,7 +128,21 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
         )
 
 
-    
+
+
+# 转换函数
+def convert_fields(data, mapping):
+    if isinstance(data, dict):
+        return {mapping.get(k, k): convert_fields(v, mapping) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [convert_fields(item, mapping) for item in data]
+    elif hasattr(data, "__dict__"):
+        # 如果是类实例对象，提取其属性为字典
+        return convert_fields(vars(data), mapping)
+    else:
+        return data
+
+
             
 # 启动应用
 if __name__ == "__main__":
