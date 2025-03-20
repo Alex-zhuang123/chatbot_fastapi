@@ -166,8 +166,6 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
         )
 
 
-
-
 # 转换函数
 def convert_fields(data, mapping):
     if isinstance(data, dict):
@@ -179,6 +177,21 @@ def convert_fields(data, mapping):
         return convert_fields(vars(data), mapping)
     else:
         return data
+
+
+async def process_file_async(filename,temp_dir):
+    file_path = os.path.join(temp_dir, filename)
+    try:
+        if filename.lowe().endswith(('.pdf')):
+            pdf_document = fitz.open(file_path)
+            total_pages = len(pdf_document)
+            for page_num in range(total_pages):
+                page = pdf_document.load_page(page_num)
+                pix = page.get_pixmap(dpi=800)
+                image_bytes = pix.tobytes("png")
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                all_images_base64.append(image_base64)
+                
 
 
             
