@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, Depends, File
+from fastapi import FastAPI, HTTPException, UploadFile, Depends, File, applications
+from fastapi.openapi.docs import get_swagger_ui_html
 from tempfile import mkdtemp
 from typing import List
 import shutil
@@ -9,8 +10,30 @@ import os
 from workflow import extract_key_developments
 import pymupdf as fitz
 import base64
+from PIL import Image
+import io
+
+def swagger_monkey_patch(*args, **kwargs):
+    """
+    fastapi的swagger ui默认使用国外cdn, 所以导致文档打不开, 需要对相应方法做替换
+    在应用生效前, 对swagger ui html做替换
+    :param args:
+    :param kwargs:
+    :return:
+    """
+    return get_swagger_ui_html(
+        *args, **kwargs,
+        swagger_js_url='https://cdn.staticfile.org/swagger-ui/4.15.5/swagger-ui-bundle.min.js',  # 改用国内cdn
+        swagger_css_url='https://cdn.staticfile.org/swagger-ui/4.15.5/swagger-ui.min.css'
+    )
+
+
+applications.get_swagger_ui_html = swagger_monkey_patch
+
 
 app = FastAPI()
+
+
 
 # 配置日志
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -89,18 +112,33 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
     for filename in successful_files:
         try:
             file_path = os.path.join(temp_dir, filename)
-            pdf_document = fitz.open(file_path)
-            total_pages = len(pdf_document)
 
-            for page_num in range(total_pages):
-                page = pdf_document.load_page(page_num) # 加载页面
-                pix = page.get_pixmap(dpi=800)
+            if filename.lower().endswith(('.pdf')):
+                #处理PDF文件
 
-                image_bytes = pix.tobytes("png")
-                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-                all_images_base64.append(image_base64)
+                pdf_document = fitz.open(file_path)
+                total_pages = len(pdf_document)
+                for page_num in range(total_pages):
+                    page = pdf_document.load_page(page_num) # 加载页面
+                    pix = page.get_pixmap(dpi=800)
 
-                print(f"Page {page_num + 1} of {filename} convertend to Base")
+                    image_bytes = pix.tobytes("png")
+                    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                    all_images_base64.append(image_base64)
+
+                    print(f"Page {page_num + 1} of {filename} convertend to Base")
+
+            elif filename.lower().endswith(('.jpg', '.jpeg', '.png')):
+                # 处理图片文件
+                with Image.open(file_path) as img:
+                    # 将图片转换为字节流
+                    img_byte_arr = io.BytesIO()
+                    img.save(img_byte_arr,format=img.format)
+                    img_byte_arr = img_byte_arr.getvalue()
+
+                    image_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
+                    all_images_base64.append(image_base64)
+
 
         except Exception as e:
             error_message = f"Error converting file {filename}: {str(e)}"
