@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, Depends, File, applications
+from fastapi import FastAPI, HTTPException, UploadFile, Depends, File, applications, Security,HTTPException,Depends
+from fastapi.security import APIKeyHeader
 from fastapi.openapi.docs import get_swagger_ui_html
 from tempfile import mkdtemp
 from typing import List
@@ -14,6 +15,22 @@ from PIL import Image
 import io
 import asyncio
 
+
+#  定义一个APIKeyHeader 用于从请求头中获取token
+API_TOKEN_NAME = "Authorization"
+api_key_header = APIKeyHeader(name=API_TOKEN_NAME, auto_error=False)
+
+# 验证 token 的函数
+async def get_token(api_key: str = Security(api_key_header)):
+    # 从环境变量中获取预设的token
+    preset_token = os.getenv("API_TOKEN", "Devrgek1285965")
+
+    if api_key != preset_token:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid or missing API Token"
+        )
+    return api_key
 def swagger_monkey_patch(*args, **kwargs):
     """
     fastapi的swagger ui默认使用国外cdn, 所以导致文档打不开, 需要对相应方法做替换
@@ -34,7 +51,8 @@ applications.get_swagger_ui_html = swagger_monkey_patch
 
 app = FastAPI()
 
-
+# 指定swagger支持为3.0.0版本
+app.openapi_version = "3.0.0"
 
 # 配置日志
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
@@ -61,7 +79,8 @@ def get_file_service():
 @app.post("/upload-files/")
 async def upload_files(
     files: List[UploadFile] = File(...),
-    file_service: FileService = Depends(get_file_service)
+    file_service: FileService = Depends(get_file_service),
+    token:str = Depends(get_token)
 ):
     temp_dir = mkdtemp()
     logger.info(f"Created temporary directory: {temp_dir}")
@@ -81,7 +100,11 @@ async def upload_files(
 
 # 处理上传文件的接口
 @app.post("/process-files/")
-async def process_files(temp_dir: str, save_results: List[dict]):
+async def process_files(
+    temp_dir: str, 
+    save_results: List[dict],
+    token: str = Depends(get_token)
+):
     try:
         # 检查临时目录是否存在
         if not os.path.exists(temp_dir) :
@@ -108,37 +131,41 @@ async def handle_file(temp_dir: str, save_results: List[dict]):
     
     failed_files = []
     all_images_base64 = []
+    #文件转为base64编码
     async def process_file_async(filename,temp_dir):
         file_path = os.path.join(temp_dir, filename)
-        try:
-            if filename.lowe().endswith(('.pdf')):
-                pdf_document = fitz.open(file_path)
-                total_pages = len(pdf_document)
-                for page_num in range(total_pages):
-                    page = pdf_document.load_page(page_num)
-                    pix = page.get_pixmap(dpi=800)
-                    image_bytes = pix.tobytes("png")
-                    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
-                    all_images_base64.append(image_base64)
-                    print(f"Page {page_num + 1} of {filename} converted to base64.")
-            elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
-                img_byte_arr = io.BytesIO()
-                with Image.open(file_path) as img:
-                    img.save(img_byte_arr,format=img.format)
-                    img_byte_arr = img_byte_arr.getvalue()
-                img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
-                all_images_base64.append(img_base64)
-        except Exception as e:
-            error_message = f"Error processing file: {filename}. Error: {str(e)}"
-            print(error_message)
-            failed_files.append({"filename": filename, "error": str(e)})
+        semaphore = asyncio.Semaphore(8) 
+        """提取单个图片中的关键进展"""
+        async with semaphore:  # 限制并发任务数量
+            try:
+                if filename.lower().endswith(('.pdf')):
+                    pdf_document = fitz.open(file_path)
+                    total_pages = len(pdf_document)
+                    for page_num in range(total_pages):
+                        page = pdf_document.load_page(page_num)
+                        pix = page.get_pixmap(dpi=800)
+                        image_bytes = pix.tobytes("png")
+                        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                        all_images_base64.append(image_base64)
+                        print(f"Page {page_num + 1} of {filename} converted to base64.")
+                elif filename.lower().endswith((".jpg", ".jpeg", ".png")):
+                    img_byte_arr = io.BytesIO()
+                    with Image.open(file_path) as img:
+                        img.save(img_byte_arr,format=img.format)
+                        img_byte_arr = img_byte_arr.getvalue()
+                    img_base64 = base64.b64encode(img_byte_arr).decode("utf-8")
+                    all_images_base64.append(img_base64)
+            except Exception as e:
+                error_message = f"Error processing file: {filename}. Error: {str(e)}"
+                print(error_message)
+                failed_files.append({"filename": filename, "error": str(e)})
 
     # 使用 asyncio.gather 并发处理文件
     await asyncio.gather(*[process_file_async(filename, temp_dir) for filename in successful_files])
     
     # 提取关键信息
     try:
-        key_developments = await extract_key_developments(all_images_base64)
+        key_developments = await extract_key_developments(all_images_base64) 
 
         # 调用转换函数
         converted_data = convert_fields(key_developments, field_mapping)

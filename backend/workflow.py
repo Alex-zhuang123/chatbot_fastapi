@@ -58,20 +58,20 @@ def convert_fields(data, mapping):
     else:
         return data
 
-
-async def extract_key_developments(all_images_base64):
-    """批量提取图片中的关键进展并合并结果"""
-    results = ExtractionData()
-    for image_base64 in all_images_base64:
+ # 最大并发任务数为 16
+async def extract_key_single(image_base64):
+    semaphore = asyncio.Semaphore(16) 
+    """提取单个图片中的关键进展"""
+    async with semaphore:  # 限制并发任务数量
         try:
             completion = await client.chat.completions.create(
-                model="qwen-vl-plus",
+                model="qwen-vl-max-2025-01-25",
                 messages=[{
                     "role": "user",
                     "content": [
                         {"type": "text", "text": "提取下面九个字段:编号、单号、等级、材料、QCR、尺寸、易损件、数量、外发编号," \
-                         "返回JSON对象,格式示例为:[{}]" \
-                         "如果存在空值,则返回空字符串,不要自己虚构"},
+                            "返回JSON对象,格式示例为:[{}]" \
+                            "如果存在空值,则返回空字符串,不要自己虚构"},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}}
                     ]
                 }]
@@ -81,21 +81,35 @@ async def extract_key_developments(all_images_base64):
             json_str = raw_content.split("```json")[1].split("```")[0].strip()
             data = json.loads(json_str)
             # 遍历所有零件条目
-            for item_dict in data:
-                item = KeyDevelopment(**item_dict)
-                results.key_developments.append(item)
-
-            
+            key_developments = [KeyDevelopment(**item_dict) for item_dict in data]
+            return key_developments
 
         except FileNotFoundError:
             print(f"错误:文件 {image_base64} 未找到，跳过处理")
         except (IndexError, json.JSONDecodeError) as e:
             print(f"JSON解析失败:{e}，原始响应：{raw_content}")
         except ValidationError as e:
-            print(f"数据验证失败:{e}，解析后的数据：{item_dict}")
+            print(f"数据验证失败:{e}，解析后的数据：{data}")
         except Exception as e:
             print(f"处理图片 {image_base64} 时发生未知错误：{str(e)}")
+        return []
+
+
+async def extract_key_developments(all_images_base64):
+    """批量提取图片中的关键进展并合并结果"""
+    results = ExtractionData()
+
+    # 并发处理所有图片
+    tasks = [extract_key_single(image_base64) for image_base64 in all_images_base64]
+    extracted_results = await asyncio.gather(*tasks)
+
+    # 合并所有结果
+    for key_dev_list in extracted_results:
+        results.key_developments.extend(key_dev_list)
+
     return results
+
+
 
 # 使用示例
 if __name__ == "__main__":
